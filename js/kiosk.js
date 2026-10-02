@@ -1,4 +1,4 @@
-import { initFirebase, describeAuthError, isOfflineError, forceReconnect, configReady } from './firebase.js';
+import { describeNetworkError, isOfflineError } from './network.js';
 import {
     ensurePoll,
     subscribePoll,
@@ -298,7 +298,7 @@ function resultScreen(ok) {
             : '<p class="text-amber-200 text-lg max-w-lg">' +
               escapeHtml(state.error || 'The server could not accept the vote.') +
               '</p><p class="text-slate-400 text-sm mt-2">Your choice is stored on this laptop. Tell your teacher, ' +
-              'who can read it back from the master dashboard.</p>') +
+              'who can check the master dashboard when the connection returns.</p>') +
         '<p class="text-slate-500 text-sm mt-6">Next voter, please step up</p>' +
         '</div>'
     );
@@ -484,7 +484,7 @@ function handleFailure(entry, err) {
     } else {
         state.net = 'pending';
         state.holdReason = 'error';
-        state.error = describeAuthError(err);
+        state.error = describeNetworkError(err);
     }
     state.phase = 'held';
     render(true);
@@ -534,6 +534,8 @@ function onPollData(poll) {
         state.phase = derivePhase();
     } else if (state.phase === 'setup') {
         if (state.classKey) state.phase = derivePhase();
+    } else if (state.phase === 'offline' || state.phase === 'error') {
+        state.phase = derivePhase();
     } else if (state.phase === 'idle' || state.phase === 'closed' || state.phase === 'sealed') {
         const next = derivePhase();
         if (next === 'sealed' && state.phase !== 'sealed') {
@@ -565,22 +567,14 @@ function onPollError(err) {
         render(true);
         startFlush();
     } else {
-        state.error = describeAuthError(err);
+        state.error = describeNetworkError(err);
         state.phase = 'error';
         render(true);
     }
 }
 
 async function boot() {
-    if (!configReady) {
-        state.phase = 'error';
-        state.error =
-            'js/firebase-config.js still has placeholder values. Follow the README to add your Firebase project keys, then reload.';
-        render(true);
-        return;
-    }
     try {
-        await initFirebase();
         await ensurePoll(POLL_ID);
         state.net = 'live';
         subscribePoll(POLL_ID, onPollData, onPollError);
@@ -589,8 +583,7 @@ async function boot() {
             if (state.phase === 'boot' && !state.poll) {
                 state.phase = 'error';
                 state.error =
-                    'Connected, but the ballot does not exist yet. Open the master dashboard on the teacher laptop, ' +
-                    'sign in, set the candidates and classes, then reload this screen.';
+                    'Connected, but the ballot does not exist yet. Open the master dashboard and set the candidates and classes, then reload this screen.';
                 render(true);
             }
         }, 8000);
@@ -599,7 +592,7 @@ async function boot() {
             state.net = 'down';
             state.phase = 'offline';
         } else {
-            state.error = describeAuthError(err);
+            state.error = describeNetworkError(err);
             state.phase = 'error';
         }
         render(true);
@@ -608,7 +601,6 @@ async function boot() {
 
 window.addEventListener('online', () => {
     if (!state.poll) return;
-    forceReconnect().catch(() => {});
     startFlush();
 });
 

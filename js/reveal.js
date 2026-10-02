@@ -30,12 +30,8 @@ function pct(part, whole) {
 function classesLine(p) {
     const keys = Object.keys(p.classes);
     if (!keys.length) return '';
-    const rows = keys
-        .slice()
-        .sort()
-        .map((k) => '<span class="text-slate-500">' + escapeHtml(k) + '</span>');
     return '<p class="text-slate-500 text-sm mt-3">' + keys.length + ' classes &middot; ' +
-        plural(p.totalVotes, 'vote') + ' counted' + rows.length + '</p>';
+        plural(p.totalVotes, 'vote') + ' counted</p>';
 }
 
 function plural(n, word) {
@@ -259,6 +255,9 @@ stage.addEventListener('click', (e) => {
 function onData(poll) {
     state.poll = poll;
     if (state.phase === 'load') setPhase('idle');
+    else if (state.phase === 'idle') renderIdle(poll);
+    else if (state.phase === 'counting') startCounting();
+    else if (state.phase === 'winner') renderWinner(poll);
 }
 
 renderLoad();
