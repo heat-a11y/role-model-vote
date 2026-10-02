@@ -1,10 +1,10 @@
 export const firebaseConfig = {
-    apiKey: 'REPLACE_WITH_YOUR_API_KEY',
-    authDomain: 'REPLACE_WITH_YOUR_PROJECT.firebaseapp.com',
-    projectId: 'REPLACE_WITH_YOUR_PROJECT',
-    storageBucket: 'REPLACE_WITH_YOUR_PROJECT.appspot.com',
-    messagingSenderId: 'REPLACE_WITH_MESSAGING_SENDER_ID',
-    appId: 'REPLACE_WITH_YOUR_APP_ID'
+    apiKey: 'AIzaSyD00CNLJYkLwMbzcC0uuAO6nynY1lBHhk0',
+    authDomain: 'school-voting-cad02.firebaseapp.com',
+    projectId: 'school-voting-cad02',
+    storageBucket: 'school-voting-cad02.firebasestorage.app',
+    messagingSenderId: '87968069378',
+    appId: '1:87968069378:web:25ab24e7fac140e87d741b'
 };
 
 export const SETUP_DONE = !Object.values(firebaseConfig).some(

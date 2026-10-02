@@ -98,8 +98,13 @@ export function adminEmail() {
 
 export function describeAuthError(err) {
     const code = (err && err.code) || '';
-    if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
-        return 'Anonymous sign-in is switched OFF. In the Firebase console: Authentication -> Sign-in method -> Anonymous -> Enable, then Publish.';
+    if (code === 'auth/configuration-not-found' || code === 'auth/operation-not-allowed') {
+        return 'Sign-in is not switched on for this project. In the Firebase console: Build -> Authentication -> ' +
+            'Get started, then Sign-in method -> Anonymous -> Enable. If it offers to turn on Google Cloud ' +
+            'Identity Platform, accept it, that is required. Then Save.';
+    }
+    if (code === 'auth/admin-restricted-operation') {
+        return 'Sign-in methods are managed by your organisation. Ask whoever administers the Firebase project to enable Anonymous sign-in.';
     }
     if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key') {
         return 'The API key in js/firebase-config.js is not valid. Copy it again from Firebase console -> Project settings -> Your apps -> Web app -> SDK setup and configuration.';
