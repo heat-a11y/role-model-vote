@@ -56,12 +56,13 @@ export function defaultPoll() {
     return {
         title: 'Vote for your favourite role model',
         subtitle: 'Tap the person you look up to most.',
-        active: false,
-        options: [mk(1), mk(2), mk(3), mk(4)],
-        classes: {},
-        totalVotes: 0,
-        createdAt: null,
-        updatedAt: null
+active: false,
+    options: [mk(1), mk(2), mk(3), mk(4)],
+    classes: {},
+    sealed: {},
+    totalVotes: 0,
+    createdAt: null,
+    updatedAt: null
     };
 }
 
@@ -88,12 +89,19 @@ export function normalisePoll(raw) {
         }
     }
     const summed = options.reduce((a, o) => a + o.votes, 0);
+    const sealed = {};
+    if (raw.sealed && typeof raw.sealed === 'object') {
+        for (const [key, value] of Object.entries(raw.sealed)) {
+            if (CLASS_KEY_RE.test(key) && value === true) sealed[key] = true;
+        }
+    }
     return {
         title: typeof raw.title === 'string' ? raw.title.slice(0, 200) : base.title,
         subtitle: typeof raw.subtitle === 'string' ? raw.subtitle.slice(0, 300) : base.subtitle,
         active: raw.active === true,
         options,
         classes,
+        sealed,
         totalVotes: Number.isFinite(raw.totalVotes) ? raw.totalVotes : summed,
         createdAt: raw.createdAt || null,
         updatedAt: raw.updatedAt || null
@@ -160,6 +168,9 @@ export async function castVote({ pollId, optionIndex, optionId, classKey, voteId
         if (!poll.classes[classKey]) {
             return { status: 'bad-class' };
         }
+        if (poll.sealed[classKey] === true) {
+            return { status: 'class-sealed' };
+        }
 
         tx.update(ref, {
             ['options.' + optionIndex + '.votes']: increment(1),
@@ -188,6 +199,19 @@ export async function savePoll(pollId, patch) {
 
 export async function setVotingOpen(pollId, open) {
     await updateDoc(pollRef(pollId), { active: open === true, updatedAt: serverTimestamp() });
+}
+
+export async function setClassSealed(pollId, classKey, sealed) {
+    const snap = await getDoc(pollRef(pollId));
+    if (!snap.exists()) throw new Error('Ballot not found');
+    const current = normalisePoll(snap.data());
+    const next = { ...current.sealed };
+    if (sealed) {
+        next[classKey] = true;
+    } else {
+        delete next[classKey];
+    }
+    await updateDoc(pollRef(pollId), { sealed: next, updatedAt: serverTimestamp() });
 }
 
 export async function resetVotes(pollId) {
@@ -271,7 +295,13 @@ export async function flushOutbox(pollId, castFn) {
             if (res.status === 'counted' || res.status === 'duplicate') {
                 dequeueVote(entry.voteId);
                 sent += 1;
-            } else if (res.status === 'closed' || res.status === 'bad-class' || res.status === 'no-poll') {
+            } else if (
+                res.status === 'closed' ||
+                res.status === 'bad-class' ||
+                res.status === 'no-poll' ||
+                res.status === 'class-sealed'
+            ) {
+                if (res.status === 'class-sealed') recordSealedDrop(pollId, entry.classKey);
                 dequeueVote(entry.voteId);
             } else {
                 const list = readOutbox().map((e) =>
@@ -293,4 +323,41 @@ export function outboxSummary(pollId) {
     if (!entries.length) return null;
     const oldest = Math.min(...entries.map((e) => e.queuedAt || Date.now()));
     return { count: entries.length, oldest };
+}
+
+const DROPS_KEY = 'rmv.sealedDrops.v1';
+
+function readDrops() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(DROPS_KEY) || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        void e;
+        return {};
+    }
+}
+
+function recordSealedDrop(pollId, classKey) {
+    const drops = readDrops();
+    const key = pollId + ':' + classKey;
+    drops[key] = (drops[key] || 0) + 1;
+    try {
+        localStorage.setItem(DROPS_KEY, JSON.stringify(drops));
+    } catch (e) {
+        void e;
+    }
+}
+
+export function sealedDrops(pollId, classKey) {
+    return readDrops()[pollId + ':' + classKey] || 0;
+}
+
+export function clearSealedDrops(pollId, classKey) {
+    const drops = readDrops();
+    delete drops[pollId + ':' + classKey];
+    try {
+        localStorage.setItem(DROPS_KEY, JSON.stringify(drops));
+    } catch (e) {
+        void e;
+    }
 }

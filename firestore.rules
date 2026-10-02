@@ -26,6 +26,9 @@ service cloud.firestore {
             }
 
             function onlyCountersChanged() {
+                // 'sealed' is deliberately absent. A class laptop must never be
+                // able to seal or unseal a class, so keep sealing in its own
+                // top-level field and never move it inside 'classes'.
                 return request.resource.data
                     .diff(resource.data)
                     .affectedKeys()

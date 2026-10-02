@@ -82,3 +82,59 @@ export function stamp() {
         p(d.getHours()) + '-' + p(d.getMinutes())
     );
 }
+
+let audioCtx = null;
+let muted = false;
+
+function ctx() {
+    if (muted) return null;
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        if (!audioCtx) audioCtx = new AC();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+    } catch (e) {
+        void e;
+        return null;
+    }
+}
+
+export function setMuted(value) {
+    muted = value === true;
+    if (muted && audioCtx) audioCtx.suspend();
+    if (!muted) ctx();
+}
+
+export function isMuted() {
+    return muted;
+}
+
+function blip(freq, seconds, type, peak, at) {
+    const a = ctx();
+    if (!a) return;
+    const osc = a.createOscillator();
+    const gain = a.createGain();
+    const t = a.currentTime + (at || 0);
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+    osc.connect(gain);
+    gain.connect(a.destination);
+    osc.start(t);
+    osc.stop(t + seconds + 0.02);
+}
+
+export function tickSound() {
+    blip(760 + Math.round(Math.random() * 160), 0.055, 'square', 0.05);
+}
+
+export function fanfare() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => blip(f, 0.5, 'triangle', 0.11, i * 0.14));
+}
+
+export function dudSound() {
+    blip(196, 0.4, 'sawtooth', 0.08);
+}

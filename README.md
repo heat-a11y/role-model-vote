@@ -173,12 +173,20 @@ difference between a smooth day and a lost result.
   *Voting is closed* and refuse taps. You can reopen freely.
 - Watch the **Classes** tab for a class showing more votes than its roll size. That is a pupil
   tapping twice. You cannot prevent it, but you can see it.
+- **When a class finishes, press Seal class on the Classes tab.** That fixes their count as signed
+  off and their laptop stops accepting votes for good, so nobody can add to it afterwards. Check
+  that laptop says Connected with no amber waiting badge first, because a vote still waiting to sync
+  will be thrown away. If that happens the kiosk tells you plainly how many, so you can correct it.
+- Sealing is reversible. **Reopen** puts a class back to voting with its votes intact.
 
 **Announcing the result**
 
-1. Press **Close voting**.
-2. Press **Winner** for the big projector view. It says *tie* honestly rather than picking one.
-3. Press **Results CSV** and **Full JSON** to save a copy, and **Print / PDF** for the paper copy.
+1. Press **Close voting**, then **Seal class** for every class.
+2. On the projector, open `reveal.html`. Press the button or hit Space: every vote counts up one by
+   one with a tick, then the winner fills the screen with confetti. Space skips the counting, M mutes.
+   A real tie is called a tie, never quietly handed to one person.
+3. On the dashboard, press **Results CSV** and **Full JSON** to save a copy, and **Print / PDF** for
+   the paper copy.
 4. Check the **Verification** tab says the counters and the signed records **Match**.
 
 ---
@@ -186,9 +194,14 @@ difference between a smooth day and a lost result.
 ## Things worth knowing
 
 **A pupil cannot be stopped from voting twice.** By design the kiosks are open and fast. The
-dashboard shows votes per class against the roll size so an over-voting class is visible. If you
-need one vote per pupil guaranteed, the flow has to change to a teacher releasing each vote, which
-is slower.
+dashboard shows votes per class against the roll size so an over-voting class is visible, and
+**sealing a class stops the count moving afterwards**, which is what makes the final result
+trustworthy. If you need one vote per pupil guaranteed, the flow has to change to a teacher
+releasing each vote, which is slower.
+
+**Sealed is the finish line, not a lock on the number.** It stops new votes from that class. A vote
+that was already held on the laptop when you sealed can still arrive, so the seal dialog asks you to
+check the badge first, and any vote lost this way is counted up on the kiosk and shown to you.
 
 **Votes survive a network drop.** If a kiosk loses the network, a tap is stored in that laptop's
 browser and marked *Vote held*. It syncs by itself a few seconds after the network returns, and the
@@ -242,7 +255,8 @@ js/
   firebase.js         init, sign-in, error messages in plain English
   store.js            the ballot, the vote transaction, the offline queue
   kiosk.js            kiosk screens and state machine
-  dashboard.js        results, classes, verification, export
+  dashboard.js        results, classes, sealing, verification, export
+  reveal.js           projector reveal and winner announcement
   confetti.js         self-contained, cannot fail to load
   ui.js               icons, CSV, download helpers
 vendor/             Firebase SDK, served locally
