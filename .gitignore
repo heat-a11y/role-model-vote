@@ -1,0 +1,7 @@
+node_modules/
+tools/mock/js/
+tools/browser/site/
+.DS_Store
+*.log
+.firebase/
+firebase-debug.log

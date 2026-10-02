@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Role Model Vote</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="h-full bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+<main class="w-full max-w-3xl space-y-5">
+
+    <div class="text-center">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 10a4 4 0 100-8 4 4 0 000 8M22 20v-2a4 4 0 00-3-3.9"></path></svg>
+        </div>
+        <h1 class="text-3xl md:text-4xl font-black text-white">Role Model Vote</h1>
+        <p class="text-slate-400 mt-2">Choose which screen this laptop will be.</p>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2">
+        <a href="dashboard.html" class="card p-6 hover:border-indigo-500 transition-colors group">
+            <div class="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"></path></svg>
+            </div>
+            <h2 class="text-xl font-bold text-white mb-1">Master Dashboard</h2>
+            <p class="text-slate-400 text-sm">Run on the teacher's laptop. Opens and closes the vote, sets the candidates, watches results live and saves the final result.</p>
+            <div class="mt-5 flex items-center text-indigo-400 font-semibold text-sm">Open dashboard <span class="ml-2">&rarr;</span></div>
+        </a>
+
+        <a href="kiosk.html" class="card p-6 hover:border-violet-500 transition-colors group">
+            <div class="w-12 h-12 rounded-xl bg-violet-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a4 4 0 018 0v4M5 11h14v10H5z"></path></svg>
+            </div>
+            <h2 class="text-xl font-bold text-white mb-1">Class Voting Laptop</h2>
+            <p class="text-slate-400 text-sm">Run on one of the six class laptops. Asks for the class name once, then lets pupils tap to vote all lesson long.</p>
+            <div class="mt-5 flex items-center text-violet-400 font-semibold text-sm">Open voting kiosk <span class="ml-2">&rarr;</span></div>
+        </a>
+    </div>
+
+    <div class="card p-5 text-sm text-slate-400">
+        <div class="font-bold text-white mb-2">Before you start</div>
+        <ol class="list-decimal list-inside space-y-1">
+            <li>Follow the README to create the Firebase project and paste the keys into <code class="text-slate-300">js/firebase-config.js</code>.</li>
+            <li>On the master dashboard, set the question and the candidate names, and add your classes with roll sizes.</li>
+            <li>Press <strong class="text-slate-200">Open voting</strong>.</li>
+            <li>On each class laptop, open <code class="text-slate-300">kiosk.html&amp;class=3A</code> (your class) and leave it running.</li>
+        </ol>
+    </div>
+
+</main>
+</body>
+</html>
