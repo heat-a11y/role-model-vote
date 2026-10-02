@@ -1,0 +1,19 @@
+{
+  "name": "role-model-vote",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live school voting: six class laptops, one master results dashboard.",
+  "type": "module",
+  "scripts": {
+    "build": "tailwindcss -i css/input.css -o css/app.css --minify",
+    "watch": "tailwindcss -i css/input.css -o css/app.css --watch",
+    "test": "node tools/run-tests.mjs",
+    "test:browser": "node tools/browser/run.mjs",
+    "serve": "node tools/serve.mjs",
+    "test:render": "node tools/browser/verify.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.0",
+    "tailwindcss": "^3.4.0"
+  }
+}
