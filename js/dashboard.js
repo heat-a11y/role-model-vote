@@ -1,12 +1,4 @@
-import {
-    initFirebase,
-    signInAdmin,
-    isSignedInAdmin,
-    adminEmail,
-    describeAuthError,
-    isOfflineError,
-    configReady
-} from './firebase.js';
+import { describeNetworkError, isOfflineError } from './network.js';
 import {
     ensurePoll,
     subscribePoll,
@@ -43,10 +35,7 @@ const state = {
     error: '',
     audit: null,
     panel: 'results',
-    announce: false,
-    isAdmin: false,
-    adminEmail: '',
-    authError: ''
+    announce: false
 };
 
 let view = document.getElementById('view');
@@ -76,7 +65,7 @@ async function guard(fn, okMsg) {
         await fn();
         if (okMsg) toast(okMsg);
     } catch (err) {
-        toast(describeAuthError(err));
+        toast(err.message || describeNetworkError(err));
     }
 }
 
@@ -187,8 +176,7 @@ function classesPanel(p) {
                 '" style="transform:scaleX(' + (share / 100).toFixed(4) + ')"></div></div></td>' +
                 '<td class="py-3 pl-3">' +
                 '<button class="btn ' + (sealed ? 'btn-ghost' : 'btn-success') + ' text-xs px-3 py-2" ' +
-                'data-act="' + (sealed ? 'unseal' : 'seal') + '" data-key="' + escapeHtml(k) + '"' +
-                (state.isAdmin ? '' : ' disabled') + '>' +
+                'data-act="' + (sealed ? 'unseal' : 'seal') + '" data-key="' + escapeHtml(k) + '">' +
                 (sealed ? icon('refresh', 'w-3.5 h-3.5') + '<span>Reopen</span>' : icon('lock', 'w-3.5 h-3.5') + '<span>Seal class</span>') +
                 '</button></td>' +
                 '</tr>'
@@ -478,39 +466,6 @@ function setupLinkPanel() {
     );
 }
 
-function loginCard() {
-    return (
-        '<div class="card p-5 mb-4 border-indigo-600/40 bg-indigo-950/20">' +
-        '<div class="flex flex-col md:flex-row md:items-center gap-4">' +
-        '<div class="flex-1">' +
-        '<h3 class="font-bold text-white mb-1">Master sign-in needed to change anything</h3>' +
-        '<p class="text-xs text-slate-400">You are watching as a guest. Results below are live and correct, but the ' +
-        'buttons that set the ballot, open the vote or clear votes need the teacher account.</p>' +
-        (state.authError
-            ? '<div class="mt-3 p-3 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-200 text-sm">' +
-              icon('warn', 'w-4 h-4 inline mr-1.5') + escapeHtml(state.authError) + '</div>'
-            : '') +
-        '</div>' +
-        '<form class="flex flex-col sm:flex-row gap-2 shrink-0" id="admin-form">' +
-        '<input class="field sm:w-56" id="admin-email" type="email" placeholder="teacher@school.org" value="' +
-        escapeHtml(state.adminEmail) + '">' +
-        '<input class="field sm:w-40" id="admin-pass" type="password" placeholder="Password">' +
-        '<button class="btn btn-primary shrink-0" type="submit">' + icon('lock', 'w-4 h-4') +
-        '<span>Sign in</span></button></form></div></div>'
-    );
-}
-
-function adminCard() {
-    return (
-        '<div class="card px-5 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">' +
-        '<div class="flex items-center gap-2 text-sm text-emerald-300 font-semibold">' +
-        icon('check', 'w-4 h-4') + '<span>Signed in as ' + escapeHtml(state.adminEmail) + '</span></div>' +
-        '<div class="flex gap-2">' +
-        '<button class="btn btn-ghost" data-act="recheck">' + icon('refresh', 'w-4 h-4') + '<span>Re-check</span></button>' +
-        '</div></div>'
-    );
-}
-
 function render() {
     const p = state.poll;
 
@@ -528,15 +483,15 @@ function render() {
         (p && p.active ? icon('stop', 'w-4 h-4') + '<span>Close voting</span>' : icon('play', 'w-4 h-4') +
             '<span>Open voting</span>');
     btnGate.className = 'btn ' + (p && p.active ? 'btn-danger' : 'btn-success');
-    btnGate.disabled = !state.isAdmin;
-    btnGate.title = state.isAdmin ? '' : 'Sign in as master to change the vote';
+    btnGate.disabled = !p || state.net !== 'live';
+    btnGate.title = '';
     btnAnnounce.classList.toggle('hidden', !p);
 
     document.getElementById('hd-sub').textContent = p ? p.title : 'Role Model Vote';
 
     if (!p) {
         view.innerHTML =
-            '<div class="card p-8 text-center"><div class="text-6xl mb-4">...</div><p class="text-slate-400">Connecting to Firebase&hellip;</p></div>';
+            '<div class="card p-8 text-center"><div class="text-6xl mb-4">...</div><p class="text-slate-400">Connecting to the master laptop&hellip;</p></div>';
         return;
     }
 
@@ -579,14 +534,12 @@ function render() {
             : state.panel === 'classes'
               ? classesPanel(p)
               : state.panel === 'setup'
-                ? state.isAdmin
                   ? setupPanel(p)
-                  : '<div class="card p-6 text-center text-slate-400">Sign in as master above to set the ballot and classes.</div>'
-                : auditPanel(p);
+                  : auditPanel(p);
 
     view.innerHTML =
         banner +
-        (state.isAdmin ? adminCard() : loginCard()) +
+        '<div class="card px-5 py-3 mb-4 text-sm text-emerald-300 font-semibold">Master controls are ready. All connected screens update live.</div>' +
         gateBanner +
         '<div class="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-4">' +
         statCard(total, 'Total votes', 'text-indigo-300') +
@@ -623,7 +576,7 @@ function wire() {
         });
     }
     for (const el of view.querySelectorAll('[data-act]')) {
-        el.addEventListener('click', () => action(el.dataset.act));
+        el.addEventListener('click', () => action(el.dataset.act, el));
     }
     for (const el of view.querySelectorAll('[data-opt-text]')) {
         el.addEventListener('change', () => {
@@ -650,7 +603,7 @@ function wire() {
                 'Remove candidate?',
                 'This removes "' + removed.text + '" and its ' + pluralise(votes, 'vote') + ' from the total. Only do this before voting opens.',
                 async () => {
-                    await savePoll(POLL_ID, { options, totalVotes: Math.max(0, p.totalVotes - votes) });
+                    await savePoll(POLL_ID, { options });
                     toast('Candidate removed');
                 }
             );
@@ -666,10 +619,7 @@ function wire() {
                 'Remove ' + key + '?',
                 'The votes already counted from ' + key + ' (' + pluralise(p.classes[key].votes, 'vote') + ') will be removed from the result.',
                 async () => {
-                    await savePoll(POLL_ID, {
-                        classes: next,
-                        totalVotes: Math.max(0, p.totalVotes - p.classes[key].votes)
-                    });
+                    await savePoll(POLL_ID, { classes: next });
                     toast('Class removed');
                 }
             );
@@ -691,36 +641,6 @@ function wire() {
         });
     }
 
-    const form = document.getElementById('admin-form');
-    if (form) {
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('admin-email').value.trim();
-            const pass = document.getElementById('admin-pass').value;
-            if (!email || !pass) return toast('Enter your email and password');
-            state.authError = '';
-            const btn = form.querySelector('button');
-            btn.disabled = true;
-            btn.textContent = 'Signing in...';
-            try {
-                await signInAdmin(email, pass);
-                refreshAdmin();
-                state.panel = 'setup';
-                render();
-                toast('Signed in as master');
-            } catch (err) {
-                const code = (err && err.code) || '';
-                state.authError =
-                    code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found'
-                        ? 'That email and password do not match. The master account is the Email/Password user you created in the Firebase console, and its email must match ADMIN_EMAIL() in firestore.rules.'
-                        : describeAuthError(err);
-                render();
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = icon('lock', 'w-4 h-4') + '<span>Sign in</span>';
-            }
-        });
-    }
 }
 
 function openConfirm(title, msg, onYes) {
@@ -745,14 +665,9 @@ function openConfirm(title, msg, onYes) {
     });
 }
 
-async function action(act) {
+async function action(act, el) {
     const p = state.poll;
     if (!p) return;
-
-    const WRITE_ACTS = ['add-option', 'add-class', 'save-text', 'reset', 'close-announce'];
-    if (WRITE_ACTS.includes(act) && !state.isAdmin) {
-        return toast('Sign in as master first');
-    }
 
     if (act === 'add-option') {
         const input = document.getElementById('new-option');
@@ -908,7 +823,7 @@ async function runAudit() {
         const t = tallyLedger(rows, state.poll ? state.poll.options : []);
         state.audit = { ...t, rows };
     } catch (err) {
-        state.audit = { error: describeAuthError(err) };
+        state.audit = { error: err.message || describeNetworkError(err) };
     }
     if (state.panel === 'audit') render();
 }
@@ -933,24 +848,17 @@ function onPollData(poll) {
 function onPollError(err) {
     if (isOfflineError(err)) {
         state.net = 'down';
-        state.error = 'Lost the connection to Firebase. Results shown may be out of date. The class laptops are queueing votes and will sync automatically.';
+        state.error = 'Lost the connection to the master laptop. Results shown may be out of date. The class laptops are holding votes and will sync automatically.';
     } else {
-        state.error = describeAuthError(err);
+        state.error = describeNetworkError(err);
     }
     render();
 }
 
 async function boot() {
-    if (!configReady) {
-        state.error =
-            'js/firebase-config.js still has placeholder values. Follow the README to add your Firebase project keys, then reload this page.';
-        render();
-        return;
-    }
     try {
-        await initFirebase();
+        await ensurePoll(POLL_ID);
         state.net = 'live';
-        refreshAdmin();
         subscribePoll(POLL_ID, onPollData, onPollError);
         runAudit();
         auditTimer = setInterval(() => {
@@ -958,18 +866,9 @@ async function boot() {
         }, 20000);
     } catch (err) {
         state.error = isOfflineError(err)
-            ? 'Cannot reach Firebase. Check the internet connection, then reload.'
-            : describeAuthError(err);
+            ? 'Cannot reach the master laptop. Check that it is running and this device is on the same Wi-Fi.'
+            : describeNetworkError(err);
         render();
-    }
-}
-
-function refreshAdmin() {
-    state.isAdmin = isSignedInAdmin();
-    if (state.isAdmin) {
-        state.authError = '';
-        state.adminEmail = adminEmail();
-        ensurePoll(POLL_ID).catch(() => {});
     }
 }
 

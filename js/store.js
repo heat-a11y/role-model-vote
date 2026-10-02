@@ -1,19 +1,3 @@
-import {
-    doc,
-    getDoc,
-    setDoc,
-    updateDoc,
-    runTransaction,
-    onSnapshot,
-    collection,
-    getDocs,
-    query,
-    serverTimestamp,
-    increment
-} from '../vendor/firebase-firestore.js';
-
-import { getDb } from './firebase.js';
-
 const OUTBOX_KEY = 'rmv.outbox.v1';
 const CLASS_KEY_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -45,10 +29,6 @@ export function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
-}
-
-export function pollRef(pollId) {
-    return doc(getDb(), 'polls', pollId);
 }
 
 export function defaultPoll() {
@@ -109,132 +89,86 @@ export function normalisePoll(raw) {
 }
 
 export async function ensurePoll(pollId) {
-    const ref = pollRef(pollId);
-    const snap = await getDoc(ref);
-    if (snap.exists()) return true;
-    try {
-        await setDoc(ref, { ...defaultPoll(), createdAt: serverTimestamp() });
-        return true;
-    } catch (err) {
-        if (isPermissionDenied(err)) return false;
-        throw err;
-    }
-}
-
-export function isPermissionDenied(err) {
-    const code = (err && err.code) || '';
-    return code === 'permission-denied' || code === 'firestore/permission-denied';
+    await request('/api/polls/' + encodeURIComponent(pollId) + '/ensure', { method: 'POST' });
+    return true;
 }
 
 export function subscribePoll(pollId, onData, onError) {
-    return onSnapshot(
-        pollRef(pollId),
-        (snap) => {
-            if (snap.exists()) onData(normalisePoll(snap.data()));
-        },
-        (err) => {
+    const source = new EventSource('/api/polls/' + encodeURIComponent(pollId) + '/events');
+    source.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.poll) onData(normalisePoll(data.poll));
+        } catch (err) {
             if (onError) onError(err);
         }
-    );
+    };
+    source.onerror = () => {
+        if (onError) onError(new Error('Lost the connection to the local voting server.'));
+    };
+    return () => source.close();
 }
 
 export async function castVote({ pollId, optionIndex, optionId, classKey, voteId }) {
-    const db = getDb();
-    const ref = pollRef(pollId);
-    const ledgerRef = doc(db, 'polls', pollId, 'votes', voteId);
-
-    return runTransaction(db, async (tx) => {
-        const ledgerSnap = await tx.get(ledgerRef);
-        if (ledgerSnap.exists()) {
-            return { status: 'duplicate' };
-        }
-
-        const pollSnap = await tx.get(ref);
-        if (!pollSnap.exists()) {
-            return { status: 'no-poll' };
-        }
-        const poll = normalisePoll(pollSnap.data());
-
-        if (poll.active !== true) {
-            return { status: 'closed' };
-        }
-        const opt = poll.options[optionIndex];
-        if (!opt) {
-            return { status: 'bad-option' };
-        }
-        if (optionId && opt.id !== optionId) {
-            return { status: 'stale-option', options: poll.options };
-        }
-        if (!poll.classes[classKey]) {
-            return { status: 'bad-class' };
-        }
-        if (poll.sealed[classKey] === true) {
-            return { status: 'class-sealed' };
-        }
-
-        tx.update(ref, {
-            ['options.' + optionIndex + '.votes']: increment(1),
-            totalVotes: increment(1),
-            ['classes.' + classKey + '.votes']: increment(1)
-        });
-        tx.set(ledgerRef, {
-            optionIndex,
-            optionId: opt.id,
-            optionText: opt.text,
-            classKey,
-            at: serverTimestamp()
-        });
-
-        return { status: 'counted', total: poll.totalVotes + 1 };
+    return request('/api/polls/' + encodeURIComponent(pollId) + '/votes', {
+        method: 'POST',
+        body: JSON.stringify({ optionIndex, optionId, classKey, voteId })
     });
 }
 
 export async function savePoll(pollId, patch) {
-    await setDoc(
-        pollRef(pollId),
-        { ...patch, updatedAt: serverTimestamp() },
-        { merge: true }
-    );
+    await request('/api/polls/' + encodeURIComponent(pollId), {
+        method: 'PATCH',
+        body: JSON.stringify(patch)
+    });
 }
 
 export async function setVotingOpen(pollId, open) {
-    await updateDoc(pollRef(pollId), { active: open === true, updatedAt: serverTimestamp() });
+    await savePoll(pollId, { active: open === true });
 }
 
 export async function setClassSealed(pollId, classKey, sealed) {
-    const snap = await getDoc(pollRef(pollId));
-    if (!snap.exists()) throw new Error('Ballot not found');
-    const current = normalisePoll(snap.data());
+    const current = await request('/api/polls/' + encodeURIComponent(pollId));
     const next = { ...current.sealed };
     if (sealed) {
         next[classKey] = true;
     } else {
         delete next[classKey];
     }
-    await updateDoc(pollRef(pollId), { sealed: next, updatedAt: serverTimestamp() });
+    await savePoll(pollId, { sealed: next });
 }
 
 export async function resetVotes(pollId) {
-    const db = getDb();
-    await runTransaction(db, async (tx) => {
-        const snap = await tx.get(pollRef(pollId));
-        if (!snap.exists()) return;
-        const poll = normalisePoll(snap.data());
-        tx.update(pollRef(pollId), {
-            options: poll.options.map((o) => ({ id: o.id, text: o.text, votes: 0 })),
-            totalVotes: 0,
-            classes: Object.fromEntries(
-                Object.entries(poll.classes).map(([k, v]) => [k, { roster: v.roster, votes: 0 }])
-            ),
-            active: false
-        });
+    await request('/api/polls/' + encodeURIComponent(pollId) + '/reset', {
+        method: 'POST'
     });
 }
 
 export async function readLedger(pollId) {
-    const db = getDb();
-    const snap = await getDocs(query(collection(db, 'polls', pollId, 'votes')));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return request('/api/polls/' + encodeURIComponent(pollId) + '/votes');
+}
+
+async function request(url, options = {}) {
+    let response;
+    try {
+        response = await fetch(url, {
+            ...options,
+            headers: {
+                ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                ...options.headers
+            }
+        });
+    } catch (err) {
+        err.code = 'unavailable';
+        throw err;
+    }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const err = new Error(result.error || 'Local voting server returned HTTP ' + response.status);
+        err.code = result.code || 'server-error';
+        throw err;
+    }
+    return result;
 }
 
 export function tallyLedger(rows, options) {
