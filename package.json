@@ -10,7 +10,8 @@
     "test": "node tools/run-tests.mjs",
     "test:browser": "node tools/browser/run.mjs",
     "serve": "node tools/serve.mjs",
-    "test:render": "node tools/browser/verify.mjs"
+    "test:render": "node tools/browser/verify.mjs",
+    "test:live": "node tools/browser/live-check.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.49.0",

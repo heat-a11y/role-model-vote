@@ -50,6 +50,18 @@ Go to **Build &rarr; Authentication &rarr; Get started**, then **Sign-in method*
 
   Remember that email. You will type it into the dashboard to unlock the controls.
 
+If the console offers to turn on **Google Cloud Identity Platform**, accept it. Newer projects need it
+and without it every sign-in fails with `CONFIGURATION_NOT_FOUND`, which is the single most common
+reason a fresh Firebase project refuses to work.
+
+Check it worked with:
+
+```bash
+npm run test:live
+```
+
+It signs in anonymously against your real project and tells you exactly what is still missing.
+
 ### 3. Add the project keys
 
 Open `js/firebase-config.js` and replace every `REPLACE_WITH_...` value with the matching value from
