@@ -169,6 +169,50 @@ async function main() {
         await ctx.close();
     });
 
+    await check('a sealed class laptop locks itself and refuses to vote', async () => {
+        const { ctx, page } = await newPage('/kiosk.html?poll=t5&class=3A');
+        await seedPoll(page, 't5', {
+            title: 'Favourite role model',
+            subtitle: '',
+            active: true,
+            options: [{ id: 'o1', text: 'Mr Ali', votes: 3 }],
+            classes: { '3A': { roster: 30, votes: 3 } },
+            sealed: {},
+            totalVotes: 3
+        });
+        await page.waitForSelector('[data-opt]', { timeout: 8000 });
+        const before = await page.evaluate(
+            () => window.__testApi.__store.get('polls/t5').totalVotes
+        );
+
+        await seedPoll(page, 't5', {
+            title: 'Favourite role model',
+            subtitle: '',
+            active: true,
+            options: [{ id: 'o1', text: 'Mr Ali', votes: 3 }],
+            classes: { '3A': { roster: 30, votes: 3 } },
+            sealed: { '3A': true },
+            totalVotes: 3
+        });
+
+        await page.waitForSelector('text=has finished', { timeout: 8000 });
+        const locked = await page.evaluate(() => document.querySelector('#view').innerText);
+        assert(
+            /Class 3A has finished/.test(locked),
+            'kiosk should tell the pupil the class has finished, saw: ' + locked.replace(/\n/g, ' ').slice(0, 80)
+        );
+        const n = await page.locator('[data-opt]').count();
+        assert(n === 0, 'no vote buttons should be offered once sealed');
+
+        await page.mouse.click(400, 400);
+        await page.waitForTimeout(500);
+        const after = await page.evaluate(
+            () => window.__testApi.__store.get('polls/t5').totalVotes
+        );
+        assert(after === before, 'clicking must not add a vote after sealing: ' + before + ' -> ' + after);
+        await ctx.close();
+    });
+
     await check('dashboard shows live results, turnout and the over-roll warning', async () => {
         const { ctx, page } = await newPage('/dashboard.html?poll=t4');
         await seedPoll(page, 't4', {

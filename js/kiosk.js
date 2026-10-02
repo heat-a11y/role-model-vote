@@ -7,6 +7,7 @@ import {
     outboxSize,
     enqueueVote,
     flushOutbox,
+    sealedDrops,
     newId,
     escapeHtml
 } from './store.js';
@@ -71,11 +72,17 @@ function signature() {
         state.classKey,
         p.options.map((o) => o.id + ':' + o.text).join('|'),
         Object.keys(p.classes).join(','),
+        String(isSealed()),
+        String(sealedDrops(POLL_ID, state.classKey)),
         state.net,
         state.held,
         state.holdReason,
         state.error
     ].join('~');
+}
+
+function isSealed() {
+    return !!(state.poll && state.classKey && state.poll.sealed[state.classKey] === true);
 }
 
 function card(inner, cls = '') {
@@ -156,6 +163,28 @@ function gateScreen() {
                   ' vote' +
                   (state.held === 1 ? '' : 's') +
                   ' from this laptop still waiting to sync.</div>'
+                : ''
+    });
+}
+
+function sealedScreen() {
+    const dropped = state.classKey ? sealedDrops(POLL_ID, state.classKey) : 0;
+    return bigScreen({
+        icon: 'check',
+        tone: 'bg-emerald-500/20 text-emerald-300',
+        title: 'Class ' + escapeHtml(state.classKey) + ' has finished',
+        msg:
+            'This laptop is closed for voting. Thank you, and thank your teacher for sealing the class. ' +
+            'Put the laptop down now.',
+        extra:
+            dropped > 0
+                ? '<div class="mt-6 p-4 rounded-xl bg-rose-950/60 border border-rose-700 text-rose-200 text-sm max-w-lg text-left">' +
+                  icon('warn', 'w-5 h-5 inline mr-2') +
+                  dropped +
+                  ' vote' +
+                  (dropped === 1 ? '' : 's') +
+                  ' from this laptop could NOT be counted because the class was sealed first. Tell your teacher ' +
+                  'so it can be put right.</div>'
                 : ''
     });
 }
@@ -310,6 +339,8 @@ function render(force) {
         html = errorScreen();
     } else if (state.phase === 'offline') {
         html = offlineScreen();
+    } else if (state.phase === 'sealed') {
+        html = sealedScreen();
     } else if (state.phase === 'closed') {
         html = gateScreen();
     } else if (state.phase === 'saving') {
@@ -367,7 +398,7 @@ function setClass(raw) {
     }
     state.classKey = key;
     localStorage.setItem(LS_CLASS, key);
-    state.phase = state.poll && state.poll.active ? 'idle' : 'closed';
+    state.phase = derivePhase();
     render(true);
     if (navigator.wakeLock && navigator.wakeLock.request) {
         navigator.wakeLock.request('screen').catch(() => {});
@@ -379,7 +410,7 @@ function scheduleIdle(ms) {
     idleTimer = setTimeout(() => {
         if (!state.poll) return;
         if (state.phase === 'saved' || state.phase === 'held') {
-            state.phase = state.poll.active ? 'idle' : 'closed';
+            state.phase = derivePhase();
             render(true);
         }
     }, ms);
@@ -387,8 +418,8 @@ function scheduleIdle(ms) {
 
 async function vote(index, optionId) {
     if (state.phase === 'saving' || state.phase === 'boot') return;
-    if (!state.poll || state.poll.active !== true) {
-        state.phase = 'closed';
+    if (!state.poll || state.poll.active !== true || isSealed()) {
+        state.phase = derivePhase();
         render(true);
         return;
     }
@@ -427,6 +458,10 @@ async function vote(index, optionId) {
             state.phase = 'idle';
             render(true);
             toast('The list just changed &mdash; please tap your choice again');
+        } else if (res.status === 'class-sealed') {
+            state.phase = 'sealed';
+            render(true);
+            toast('This class has finished voting');
         } else if (res.status === 'bad-class') {
             state.phase = 'setup';
             render(true);
@@ -495,22 +530,31 @@ function onPollData(poll) {
     const prevActive = state.poll ? state.poll.active : null;
     state.poll = poll;
 
-    if (state.phase === 'boot' || state.phase === 'setup') {
-        if (state.phase === 'boot') {
-            state.phase = !state.classKey ? 'setup' : poll.active ? 'idle' : 'closed';
+    if (state.phase === 'boot') {
+        state.phase = derivePhase();
+    } else if (state.phase === 'setup') {
+        if (state.classKey) state.phase = derivePhase();
+    } else if (state.phase === 'idle' || state.phase === 'closed' || state.phase === 'sealed') {
+        const next = derivePhase();
+        if (next === 'sealed' && state.phase !== 'sealed') {
+            toast('This class has now finished voting. Put the laptop down.');
         }
-    } else if (state.phase === 'idle' || state.phase === 'closed') {
-        if (!poll.active) state.phase = 'closed';
-        else if (!state.classKey) state.phase = 'setup';
-        else if (prevActive === false) {
-            state.phase = 'idle';
+        if (next === 'idle' && prevActive === false && state.phase === 'closed') {
             toast('Voting is now open');
         }
+        state.phase = next;
     }
 
     if (state.net !== 'down') state.net = 'live';
     state.error = '';
     render();
+}
+
+function derivePhase() {
+    if (!state.poll) return 'boot';
+    if (!state.classKey) return 'setup';
+    if (isSealed()) return 'sealed';
+    return state.poll.active ? 'idle' : 'closed';
 }
 
 function onPollError(err) {
@@ -582,7 +626,7 @@ view.addEventListener('click', (e) => {
         if (opt) return;
         if (!e.target.closest('button')) {
             clearTimeout(idleTimer);
-            state.phase = state.poll && state.poll.active ? 'idle' : 'closed';
+            state.phase = derivePhase();
             render(true);
         }
     }

@@ -277,6 +277,77 @@ await test('a poll with junk in it is repaired rather than crashing the screen',
     assert.equal(p.active, false);
 });
 
+console.log('\nSealing a class\n');
+
+await test('sealing a class fixes its count and stops further votes', async () => {
+    await seed();
+    await store.castVote(mkVote(0, '3A', 'seal1'));
+    await store.castVote(mkVote(1, '3A', 'seal2'));
+    await store.castVote(mkVote(2, '3B', 'seal3'));
+
+    await store.setClassSealed(POLL, '3A', true);
+
+    const after = store.normalisePoll(await readPoll());
+    assert.equal(after.sealed['3A'], true, '3A recorded as sealed');
+    assert.equal(after.sealed['3B'], undefined, '3B untouched');
+    assert.equal(after.classes['3A'].votes, 2, 'count unchanged by sealing');
+
+    const late = await store.castVote(mkVote(0, '3A', 'seal-late'));
+    assert.equal(late.status, 'class-sealed', 'a sealed class refuses new votes');
+    assert.equal((await readPoll()).totalVotes, 3, 'the refused vote did not move the total');
+
+    const other = await store.castVote(mkVote(2, '3B', 'seal-other'));
+    assert.equal(other.status, 'counted', 'other classes keep voting normally');
+});
+
+await test('reopening a class lets it vote again and keeps what it had', async () => {
+    await seed();
+    await store.castVote(mkVote(0, '3A', 're1'));
+    await store.setClassSealed(POLL, '3A', true);
+    await store.setClassSealed(POLL, '3A', false);
+
+    const p = store.normalisePoll(await readPoll());
+    assert.equal(p.sealed['3A'], undefined, 'seal removed');
+
+    const again = await store.castVote(mkVote(1, '3A', 're2'));
+    assert.equal(again.status, 'counted');
+    assert.equal(store.normalisePoll(await readPoll()).classes['3A'].votes, 2);
+});
+
+await test('sealing one class leaves the others unsealed', async () => {
+    await seed();
+    await store.setClassSealed(POLL, '3B', true);
+    const p = store.normalisePoll(await readPoll());
+    assert.equal(p.sealed['3A'], undefined);
+    assert.equal(p.sealed['3B'], true);
+});
+
+await test('a held vote is never silently lost when the class gets sealed', async () => {
+    await seed();
+    store.enqueueVote({ ...mkVote(0, '3A', 'held1'), queuedAt: Date.now() });
+    assert.equal(store.outboxSize(POLL), 1);
+
+    await store.setClassSealed(POLL, '3A', true);
+    await store.flushOutbox(POLL, (entry) => store.castVote(entry));
+
+    assert.equal(store.outboxSize(POLL), 0, 'queue is cleared so it cannot spin forever');
+    assert.equal(store.sealedDrops(POLL, '3A'), 1, 'the drop is recorded for the teacher to see');
+    assert.equal(store.sealedDrops(POLL, '3B'), 0, 'drops are counted per class');
+    assert.equal((await readPoll()).totalVotes, 0, 'the vote really was not counted');
+
+    store.clearSealedDrops(POLL, '3A');
+    assert.equal(store.sealedDrops(POLL, '3A'), 0, 'teacher can clear the notice');
+});
+
+await test('junk in the sealed map is ignored', async () => {
+    await seed();
+    await setDoc(doc({}, 'polls', POLL), { sealed: { '3A': true, 'bad.key': true, '3B': 'yes' } });
+    const p = store.normalisePoll(await readPoll());
+    assert.equal(p.sealed['3A'], true);
+    assert.equal(p.sealed['bad.key'], undefined, 'unsafe key dropped');
+    assert.equal(p.sealed['3B'], undefined, 'non-true value dropped');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 if (fail) {
     console.log(failures.map((f) => ' - ' + f).join('\n'));

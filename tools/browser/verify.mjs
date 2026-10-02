@@ -102,6 +102,23 @@ const c=await d.evaluate(()=>{const t=document.querySelector('#view').innerText;
 console.log('\nClasses tab');
 say(c.rows>=3,'a row per class','saw '+c.rows);
 say(c.over,'a class over its roll size is flagged');
+const c2=await d.evaluate(()=>({
+  sealBtns:document.querySelectorAll('#view [data-act="seal"]').length,
+  rows:document.querySelectorAll('#view tbody tr').length,
+  lockedForGuest:[...document.querySelectorAll('#view [data-act="seal"]')].every(e=>e.disabled)
+}));
+say(c2.sealBtns===c2.rows,'every class row has a seal button','btns '+c2.sealBtns+' rows '+c2.rows);
+say(c2.lockedForGuest,'seal buttons locked for a guest (no master sign-in)');
+
+await d.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
+  {...poll,sealed:{'3B':true}});
+await d.waitForTimeout(600);
+await d.click('[data-tab="classes"]'); await d.waitForTimeout(400);
+const c3=await d.evaluate(()=>{const t=document.querySelector('#view').innerText;
+  return {sealedText:/sealed/i.test(t), signed:/signed off/i.test(t), reopen:document.querySelectorAll('#view [data-act="unseal"]').length};});
+say(c3.sealedText,'a sealed class is labelled sealed');
+say(c3.signed,'a sealed class is marked signed off, not still voting');
+say(c3.reopen===1,'the sealed class offers Reopen instead of Seal','saw '+c3.reopen);
 
 await d.click('[data-tab="audit"]'); await d.waitForTimeout(500);
 const a=await d.evaluate(()=>document.querySelector('#view').innerText);
@@ -115,6 +132,50 @@ console.log('\nWinner view');
 say(/Winner/i.test(w),'announcement view renders');
 say(/Mr Ali/.test(w),'names the leader');
 await d.close();
+
+const v=await b.newPage({viewport:{width:1440,height:900}});
+const verrs=[]; v.on('pageerror',e=>verrs.push(e.message));
+await v.goto(base+'/reveal.html?poll=demo',{waitUntil:'load'});
+await v.waitForTimeout(1100);
+await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},poll);
+await v.waitForTimeout(700);
+console.log('\nReveal page');
+const rv1=await v.evaluate(()=>({txt:document.querySelector('#stage').innerText,
+  begin:!!document.querySelector('#begin')}));
+say(rv1.begin,'shows a begin button instead of starting on its own');
+say(/32 votes/i.test(rv1.txt),'states the vote total before revealing','saw: '+rv1.txt.replace(/\n/g,' ').slice(0,60));
+
+await v.click('#begin'); await v.waitForTimeout(500);
+const rv2=await v.evaluate(()=>({bars:document.querySelectorAll('.rv-bar-track').length}));
+say(rv2.bars===4,'a bar per candidate while counting','saw '+rv2.bars);
+
+await v.keyboard.press(' '); await v.waitForTimeout(1200);
+const rv3=await v.evaluate(()=>({txt:document.querySelector('#stage').innerText,
+  rows:document.querySelectorAll('#stage .card > div').length}));
+say(/Mr Ali/.test(rv3.txt),'reveals the leader by name');
+say(/winner/i.test(rv3.txt),'labels the winner');
+say(rv3.rows===4,'final ranking lists every candidate','saw '+rv3.rows);
+
+await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
+  {...poll,options:[
+    {id:'o1',text:'Mr Ali',votes:10},{id:'o2',text:'Ms Chen',votes:10},
+    {id:'o3',text:'Coach Davies',votes:4},{id:'o4',text:'Mrs Okafor',votes:2}],totalVotes:26});
+await v.waitForTimeout(700); await v.click('#again'); await v.waitForTimeout(400);
+await v.keyboard.press(' '); await v.waitForTimeout(1200);
+const rv4=await v.evaluate(()=>document.querySelector('#stage').innerText);
+say(/tie/i.test(rv4),'a genuine tie is called a tie instead of crowning one');
+say(/will not pick one/i.test(rv4),'the tie message explains it did not pick a winner');
+
+await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
+  {...poll,options:[
+    {id:'o1',text:'Mr Ali',votes:1},{id:'o2',text:'Ms Chen',votes:0},
+    {id:'o3',text:'Coach Davies',votes:0},{id:'o4',text:'Mrs Okafor',votes:0}],totalVotes:1});
+await v.waitForTimeout(700); await v.click('#again'); await v.waitForTimeout(400);
+await v.keyboard.press(' '); await v.waitForTimeout(1200);
+const rv5=await v.evaluate(()=>document.querySelector('#stage').innerText);
+say(!/close winner|margin of/i.test(rv5),'a one-vote lead is not dressed up as a landslide');
+say(verrs.length===0,'no uncaught errors on the reveal page',verrs.join(' | '));
+await v.close();
 
 await b.close(); server.close();
 console.log('\n'+(bad?bad+' problem(s)':'All render checks passed')+'\n');

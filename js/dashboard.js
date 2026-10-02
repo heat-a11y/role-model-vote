@@ -12,6 +12,7 @@ import {
     subscribePoll,
     savePoll,
     setVotingOpen,
+    setClassSealed,
     resetVotes,
     readLedger,
     tallyLedger,
@@ -156,34 +157,51 @@ function classesPanel(p) {
         .map((k) => {
             const c = p.classes[k];
             const roster = c.roster || 0;
+            const sealed = p.sealed[k] === true;
             const over = roster > 0 && c.votes > roster;
-            const under = roster > 0 && c.votes < roster;
+            const under = !sealed && roster > 0 && c.votes < roster;
             const share = roster ? Math.min(100, (c.votes / roster) * 100) : 0;
-            const tone = over
-                ? 'text-rose-300'
-                : under
-                  ? 'text-amber-300'
-                  : 'text-emerald-300';
+            const tone = sealed ? 'text-emerald-300' : over ? 'text-rose-300' : under ? 'text-amber-300' : 'text-slate-300';
             return (
-                '<tr class="border-t border-slate-800">' +
-                '<td class="py-3 pr-3 font-semibold text-white">' + escapeHtml(k) + '</td>' +
+                '<tr class="border-t border-slate-800 ' + (sealed ? 'bg-emerald-950/20' : '') + '">' +
+                '<td class="py-3 pr-3 font-semibold text-white">' + escapeHtml(k) +
+                (sealed
+                    ? ' <span class="pill bg-emerald-500/15 text-emerald-300 ml-1">' + icon('lock', 'w-3 h-3') +
+                      '<span>sealed</span></span>'
+                    : '') +
+                '</td>' +
                 '<td class="py-3 px-3 num text-slate-300">' + (roster || '?') + '</td>' +
                 '<td class="py-3 px-3 num text-lg font-extrabold text-white">' + c.votes + '</td>' +
                 '<td class="py-3 px-3 ' + tone + ' font-bold text-sm">' +
-                (over ? pluralise(c.votes - roster, 'vote') + ' over roll' : under ? 'still voting' : 'complete') +
+                (sealed
+                    ? 'signed off'
+                    : over
+                      ? pluralise(c.votes - roster, 'vote') + ' over roll'
+                      : under
+                        ? 'still voting'
+                        : 'complete') +
                 '</td>' +
                 '<td class="py-3 pl-3 w-40"><div class="bar-track h-2">' +
                 '<div class="h-full rounded-full origin-left ' +
-                (over ? 'bg-rose-500' : under ? 'bg-amber-500' : 'bg-emerald-500') +
+                (sealed ? 'bg-emerald-500' : over ? 'bg-rose-500' : under ? 'bg-amber-500' : 'bg-slate-500') +
                 '" style="transform:scaleX(' + (share / 100).toFixed(4) + ')"></div></div></td>' +
+                '<td class="py-3 pl-3">' +
+                '<button class="btn ' + (sealed ? 'btn-ghost' : 'btn-success') + ' text-xs px-3 py-2" ' +
+                'data-act="' + (sealed ? 'unseal' : 'seal') + '" data-key="' + escapeHtml(k) + '"' +
+                (state.isAdmin ? '' : ' disabled') + '>' +
+                (sealed ? icon('refresh', 'w-3.5 h-3.5') + '<span>Reopen</span>' : icon('lock', 'w-3.5 h-3.5') + '<span>Seal class</span>') +
+                '</button></td>' +
                 '</tr>'
             );
         })
         .join('');
 
+    const sealedCount = keys.filter((k) => p.sealed[k] === true).length;
+
     const totalRoster = keys.reduce((a, k) => a + (p.classes[k].roster || 0), 0);
     const totalVotes = keys.reduce((a, k) => a + p.classes[k].votes, 0);
     const turnout = totalRoster ? Math.round((totalVotes / totalRoster) * 100) : null;
+    const allDone = keys.length > 0 && sealedCount === keys.length;
 
     return (
         '<div class="card overflow-hidden">' +
@@ -193,20 +211,29 @@ function classesPanel(p) {
         (totalRoster
             ? pluralise(totalRoster, 'pupil') + ' on roll &middot; ' + turnout + '% turnout'
             : 'Add roll sizes to track turnout') +
+        (sealedCount ? ' &middot; ' + sealedCount + ' of ' + keys.length + ' sealed' : '') +
         '</p></div>' +
+        '<div class="flex items-center gap-2">' +
+        (allDone
+            ? '<button class="btn btn-success" data-act="reveal">' + icon('play', 'w-4 h-4') +
+              '<span>Reveal the winner</span></button>'
+            : '') +
         '<button class="btn btn-ghost" data-act="add-class" ' + (p.active ? 'disabled' : '') + '>' +
-        icon('plus', 'w-4 h-4') + '<span>Add class</span></button></div>' +
+        icon('plus', 'w-4 h-4') + '<span>Add class</span></button></div></div>' +
         '<div class="overflow-x-auto"><table class="w-full text-sm">' +
         '<thead><tr class="text-left text-xs uppercase tracking-wider text-slate-500">' +
         '<th class="py-2 pr-3 font-semibold">Class</th><th class="py-2 px-3 font-semibold">Roll</th>' +
         '<th class="py-2 px-3 font-semibold">Votes</th><th class="py-2 px-3 font-semibold">Status</th>' +
-        '<th class="py-2 pl-3 font-semibold">Turnout</th></tr></thead><tbody>' +
+        '<th class="py-2 pl-3 font-semibold">Turnout</th>' +
+        '<th class="py-2 pl-3 font-semibold"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
         rows +
         '</tbody></table></div>' +
         '<div class="px-5 py-3 border-t border-slate-800 text-xs text-slate-500">' +
-        icon('warn', 'w-3.5 h-3.5 inline mr-1.5') +
-        'A class can vote more than its roll size if a pupil taps twice. This app does not stop that, it only ' +
-        'shows you, so you can spot it.</div></div>'
+        icon('lock', 'w-3.5 h-3.5 inline mr-1.5') +
+        '<strong class="text-slate-400">Seal a class</strong> when it finishes voting. That closes the laptop for ' +
+        'good and fixes the count as signed off, so nobody can add to it later. Check the laptop says Connected ' +
+        'with no waiting badge first.' +
+        '</div></div>'
     );
 }
 
@@ -759,6 +786,30 @@ async function action(act) {
         const t = document.getElementById('poll-title').value.trim();
         const s = document.getElementById('poll-sub').value.trim();
         await guard(() => savePoll(POLL_ID, { title: t || 'Vote', subtitle: s }), 'Ballot text saved');
+    }
+
+    if (act === 'seal' || act === 'unseal') {
+        const key = el.dataset.key;
+        const p = state.poll;
+        const sealed = act === 'seal';
+        const votes = p.classes[key].votes;
+        const roster = p.classes[key].roster || 0;
+        const body = sealed
+            ? 'The ' + key + ' count of ' + pluralise(votes, 'vote') +
+              (roster && votes !== roster ? ' (roll is ' + roster + ')' : '') +
+              ' is signed off and the ' + key + ' laptop stops accepting votes. This is not easily undone. ' +
+              '<strong class="text-amber-300">Before you do, check the ' + key + ' laptop shows Connected with no ' +
+              'amber waiting badge</strong>, otherwise a vote still waiting to sync will be thrown away.'
+            : 'Reopen ' + key + ' so its laptop can vote again. Votes already counted stay counted.';
+        openConfirm(sealed ? 'Seal ' + key + '?' : 'Reopen ' + key + '?', body, async () => {
+            await guard(() => setClassSealed(POLL_ID, key, sealed), sealed ? key + ' sealed' : key + ' reopened');
+        });
+    }
+
+    if (act === 'reveal') {
+        const url = new URL('reveal.html', location.href);
+        url.searchParams.set('poll', POLL_ID);
+        window.open(url.toString(), '_blank', 'noopener');
     }
 
     if (act === 'reset') {

@@ -12,7 +12,7 @@ export function buildSite({ live = false } = {}) {
     fs.mkdirSync(path.join(site, 'vendor'), { recursive: true });
     fs.mkdirSync(path.join(site, 'css'), { recursive: true });
 
-    for (const f of ['store.js', 'firebase.js', 'kiosk.js', 'dashboard.js', 'ui.js', 'confetti.js']) {
+    for (const f of ['store.js', 'firebase.js', 'kiosk.js', 'dashboard.js', 'reveal.js', 'ui.js', 'confetti.js']) {
         fs.copyFileSync(path.join(root, 'js', f), path.join(site, 'js', f));
     }
 
@@ -36,7 +36,7 @@ export function buildSite({ live = false } = {}) {
         }
     }
 
-    for (const f of ['index.html', 'kiosk.html', 'dashboard.html', 'favicon.svg']) {
+    for (const f of ['index.html', 'kiosk.html', 'dashboard.html', 'reveal.html', 'favicon.svg']) {
         fs.copyFileSync(path.join(root, f), path.join(site, f));
     }
 
