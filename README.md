@@ -1,265 +1,77 @@
 # Role Model Vote
 
-Live voting for a school. Six class laptops let pupils tap a favourite role model; one master
-laptop shows the result updating in real time and saves a signed record of every vote.
+Live school vote: one master laptop runs the voting server, six (or more) voting laptops act as kiosks, and one projector shows the reveal. All devices connect over the same local Wi-Fi. No internet, accounts, or sign-in needed.
 
-- `index.html` &mdash; pick which screen this laptop is
-- `kiosk.html` &mdash; the voting screen used in each classroom
-- `dashboard.html` &mdash; the master's results and controls
+**Do not use the GitHub Pages URL for the live vote.** GitHub Pages only serves static files and cannot run the local voting server or share the ballot between devices.
 
----
+## What you need
 
-## How it works
+- One "master" laptop to run the server and host the dashboard
+- Voting laptops (one per class) and one projector (or display) to show results
+- All devices on the same Wi-Fi network (not guest Wi-Fi with client isolation, and not networks that block device-to-device traffic)
+- Node.js 18 or newer on the master laptop
 
-There is no server of your own. The app is static files on GitHub Pages, and all the live data
-lives in **Firestore** in a free Firebase project. Each class laptop is an independent kiosk; they
-all read and write the same ballot in the cloud. The master laptop watches that same ballot.
+## How to set up on any laptop
 
-Every vote goes through a Firestore **transaction**, which means two classes tapping at the same
-millisecond cannot overwrite each other. Every vote also writes one individual signed record
-alongside the counters, so the master dashboard can prove the live numbers match the votes actually
-cast.
+You must download the **entire repository** to each laptop you want to open locally. Do **not** download just `index.html` — other pages, CSS, JS, and the server code are required.
 
-No external CDNs are used. Tailwind is compiled to a real stylesheet and the Firebase SDK is served
-from `vendor/`, so the app renders identically even on a slow or filtered school network. The only
-network dependency is reaching Firestore itself.
-
----
-
-## Setup, once, about thirty minutes
-
-### 1. Create the Firebase project
-
-1. Go to <https://console.firebase.google.com> and add a project.
-2. On the project home, click the web icon (`</>`) to add a **Web app**. Do not tick Firebase
-   Hosting. Register the app.
-3. Firebase shows you a `firebaseConfig` object. Keep it open.
-
-### 2. Turn on the two ways of signing in
-
-Go to **Build &rarr; Authentication &rarr; Get started**, then **Sign-in method**:
-
-- **Anonymous** &mdash; set to **Enable**, then **Save**. This is what the six class laptops use.
-- **Email/Password** &mdash; set to **Enable**, then **Save**. Then go to the **Users** tab, click
-  **Add user**, and create the teacher account, for example:
-
-  ```
-  email:    yourteacher@school.org
-  password: something you will remember on the day
-  ```
-
-  Remember that email. You will type it into the dashboard to unlock the controls.
-
-If the console offers to turn on **Google Cloud Identity Platform**, accept it. Newer projects need it
-and without it every sign-in fails with `CONFIGURATION_NOT_FOUND`, which is the single most common
-reason a fresh Firebase project refuses to work.
-
-Check it worked with:
-
-```bash
-npm run test:live
+### Option 1: Git (recommended, easiest to update)
+```sh
+git clone https://github.com/heat-a11y/role-model-vote
+cd role-model-vote
 ```
 
-It signs in anonymously against your real project and tells you exactly what is still missing.
+### Option 2: Download ZIP
+1. Go to [github.com/heat-a11y/role-model-vote](https://github.com/heat-a11y/role-model-vote)
+2. Click `Code → Download ZIP`
+3. Unzip the folder on each laptop
 
-### 3. Add the project keys
+## Start voting (master first)
 
-Open `js/firebase-config.js` and replace every `REPLACE_WITH_...` value with the matching value from
-your `firebaseConfig`. It looks like this:
+1. **On the master laptop:** Open the unzipped folder in a terminal and run:
+   ```sh
+   npm install
+   npm run serve
+   ```
+   Leave this terminal open for the entire vote. It will print local URLs and the IP addresses of the master laptop (e.g. `http://192.168.1.50:8080`).
 
-```js
-export const firebaseConfig = {
-    apiKey: 'AIza...',
-    authDomain: 'yourproject.firebaseapp.com',
-    projectId: 'yourproject',
-    storageBucket: 'yourproject.appspot.com',
-    messagingSenderId: '123456789',
-    appId: '1:123456789:web:abc123'
-};
+2. **Open the master dashboard:** On the master laptop, open `http://localhost:8080/dashboard.html` in your browser.
+
+3. **Set up the ballot:** On the Setup tab, enter the question, candidates, and all class names with their roll sizes.
+
+4. **Connect voting laptops:** On each voting laptop, open a browser and go to:
+   ```
+   http://MASTER-LAPTOP-IP:8080/kiosk.html?class=CLASSNAME
+   ```
+   Replace `MASTER-LAPTOP-IP` with the IP shown in the master terminal (e.g. `192.168.1.50`). Replace `CLASSNAME` with the exact class name from setup (e.g. `3A`, `3B`). Confirm the correct class is shown.
+
+5. **Connect the projector:** Open `http://MASTER-LAPTOP-IP:8080/reveal.html` on the projector/display.
+
+6. **Run the vote:** Press **Open voting** on the master dashboard. All devices will update live. When a class finishes, seal it from the Classes tab after their kiosk shows **Connected** with no "waiting to sync" badge. Close voting when ready, then show the reveal.
+
+## Tips for "works on every laptop"
+
+- **Any OS works:** Windows, macOS, Linux, and most Chromebooks can run this. The only requirement on master is Node.js 18+. Other devices just need a modern browser (Chrome, Edge, Firefox, etc.).
+- **No installation needed on voting devices:** Voting laptops and projector don't run Node — they just open web pages via the master's IP.
+- **Network matters:** Use your normal school Wi-Fi, not guest Wi-Fi. Disable client isolation/AP isolation if enabled. If prompted, allow Node.js through the master laptop's firewall (on private/local network).
+- **Connection drops are safe:** If a kiosk loses connection, it keeps votes locally and retries automatically. Wait for the sync badge to clear before sealing or announcing results.
+- **Master must stay running:** The master laptop must stay on, awake, and the `npm run serve` terminal must remain open throughout the vote.
+
+## Data & privacy
+
+- Votes and ballot are stored on the master laptop in `data/<ballot-id>.json`. The `data/` folder is created automatically.
+- "Reset all votes" clears stored vote records and closes the ballot.
+- There is no sign-in. Anyone on the same local network can access the dashboard — use a trusted private network and do not expose this server to the public internet.
+- Each tap is one vote; the app does not identify pupils or prevent multiple taps.
+
+## Development & checks
+
+```sh
+npm install           # needed for tests and CSS build
+npm test              # local server and concurrent vote tests
+npm run test:browser  # eight-device browser sync test
+npm run test:render   # page layout and touch-target checks
+npm run build         # rebuild css/app.css after changing HTML/JS
 ```
 
-Until every placeholder is gone the app shows a red **setup required** screen instead of pretending
-to work. It will never quietly fall back to a fake mode.
-
-These values are safe to commit and safe to have on a school laptop. A Firebase web `apiKey` is
-meant to be visible in any browser app; it is an identifier, not a password. What actually stops
-anyone from tampering with your vote is the security rules in the next-but-one step, so those matter
-far more than hiding the key.
-
-### 4. Allow your domain
-
-In **Authentication &rarr; Settings &rarr; Authorised domains**, add the address you will serve the
-app from. `localhost` is already allowed. Add your GitHub Pages address too, for example
-`yourrepo.github.io`.
-
-### 5. Publish the Firestore security rules
-
-The rules keep the class laptops honest: they may only add one vote, only while the vote is open.
-They cannot rename candidates, retitle the ballot, change the class list or clear results. Only
-your signed-in teacher account can do that.
-
-First, open `firestore.rules` and put your teacher email into the marked line:
-
-```
-function ADMIN_EMAIL() {
-    return 'yourteacher@school.org';
-}
-```
-
-Then publish. Either in the console (**Firestore Database &rarr; Rules &rarr; Publish**), or from a
-terminal:
-
-```bash
-npm install -g firebase-tools
-firebase login
-firebase use --add          # pick your project
-firebase deploy --only firestore:rules
-```
-
-### 6. Put it on GitHub Pages
-
-```bash
-git init
-git add .
-git commit -m "Role model vote"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPO.git
-git push -u origin main
-```
-
-Then in the repository on GitHub: **Settings &rarr; Pages &rarr; Source: Deploy from a branch**,
-branch `main`, folder `/ (root)`. Wait for the green tick, then your site is at
-`https://YOUR-USERNAME.github.io/YOUR-REPO/`.
-
-If you would rather not use GitHub Pages, `npm run serve` runs it on your laptop and prints the
-address to open on the other six.
-
----
-
-## Rehearse before the day
-
-Do this at least once, in the actual room, on the actual Wi-Fi. It takes ten minutes and it is the
-difference between a smooth day and a lost result.
-
-1. On the master laptop open the dashboard and sign in with your teacher account.
-2. **Setup** tab: type the question, replace the four **Example Role Model** names with the real
-   candidates, and add your classes with their roll sizes.
-3. Press **Open voting**.
-4. On two other laptops open `.../kiosk.html?class=3A` and `.../kiosk.html?class=3B`.
-5. Tap a few votes on each. Watch the master dashboard move. Check the **Classes** tab shows the
-   counts and the turnout bar.
-6. Turn off the Wi-Fi on one kiosk and tap a vote. Confirm it says **Vote held on this laptop** and
-   not **Vote recorded**. Turn Wi-Fi back on and confirm the amber badge clears and the dashboard
-   catches up.
-7. Press **Reset all votes** to clear your rehearsal.
-
----
-
-## On the day
-
-**Before the first lesson**
-
-1. Master laptop: open the dashboard, sign in, confirm the candidates and classes are right.
-2. Leave voting **closed** while you set up.
-3. On each class laptop, open `.../kiosk.html?class=3A` (and so on), confirm the class name in the
-   top right, and press F11 for full screen.
-4. Check the header says **Connected** on all six. If it says **Offline** or **Setup needed**, fix
-   that before you start.
-
-**During the lessons**
-
-- Press **Open voting** on the master. The six kiosks change by themselves, no refresh needed.
-- Press **Close voting** whenever you want, for an announcement or a fire drill. The kiosks show
-  *Voting is closed* and refuse taps. You can reopen freely.
-- Watch the **Classes** tab for a class showing more votes than its roll size. That is a pupil
-  tapping twice. You cannot prevent it, but you can see it.
-- **When a class finishes, press Seal class on the Classes tab.** That fixes their count as signed
-  off and their laptop stops accepting votes for good, so nobody can add to it afterwards. Check
-  that laptop says Connected with no amber waiting badge first, because a vote still waiting to sync
-  will be thrown away. If that happens the kiosk tells you plainly how many, so you can correct it.
-- Sealing is reversible. **Reopen** puts a class back to voting with its votes intact.
-
-**Announcing the result**
-
-1. Press **Close voting**, then **Seal class** for every class.
-2. On the projector, open `reveal.html`. Press the button or hit Space: every vote counts up one by
-   one with a tick, then the winner fills the screen with confetti. Space skips the counting, M mutes.
-   A real tie is called a tie, never quietly handed to one person.
-3. On the dashboard, press **Results CSV** and **Full JSON** to save a copy, and **Print / PDF** for
-   the paper copy.
-4. Check the **Verification** tab says the counters and the signed records **Match**.
-
----
-
-## Things worth knowing
-
-**A pupil cannot be stopped from voting twice.** By design the kiosks are open and fast. The
-dashboard shows votes per class against the roll size so an over-voting class is visible, and
-**sealing a class stops the count moving afterwards**, which is what makes the final result
-trustworthy. If you need one vote per pupil guaranteed, the flow has to change to a teacher
-releasing each vote, which is slower.
-
-**Sealed is the finish line, not a lock on the number.** It stops new votes from that class. A vote
-that was already held on the laptop when you sealed can still arrive, so the seal dialog asks you to
-check the badge first, and any vote lost this way is counted up on the kiosk and shown to you.
-
-**Votes survive a network drop.** If a kiosk loses the network, a tap is stored in that laptop's
-browser and marked *Vote held*. It syncs by itself a few seconds after the network returns, and the
-counting is idempotent, so it cannot be counted twice. A kiosk never says *Vote recorded* for a vote
-that is not recorded.
-
-**The amber badge is not decoration.** If a kiosk shows *n waiting to sync*, those votes are not in
-the dashboard yet. Wait for the badge to clear before you announce anything.
-
-**Verification is the honest check.** The **Verification** tab compares the live counter against the
-individual signed records. If they disagree, normally a vote arrived while a laptop was offline. Fix
-that first, then announce.
-
-**Editing is locked while voting is open**, on purpose. Removing a candidate mid-session would
-change the meaning of votes already cast. Close the vote to edit.
-
-**Candidate names may use letters, numbers, `-` and `_` only.** Same for class names. Dots and
-spaces are converted automatically so that a stray full stop can never corrupt a counter.
-
----
-
-## Local development
-
-```bash
-npm install
-npm run build          # rebuild css/app.css after editing any html or js
-npm run serve          # http://localhost:8080, prints addresses for the other laptops
-npm test               # voting logic tests
-npm run test:browser   # end to end tests in a real browser
-npm run test:render    # checks the pages really render: layout, colours, touch target sizes
-```
-
-`npm test` covers the counting logic against an in-memory Firestore, including a control case that
-proves the tests would catch lost votes. `npm run test:browser` drives real Chromium through the
-kiosk and the dashboard. `npm run test:render` fails if the styling silently stops applying, which
-is the failure mode you would otherwise only discover in a classroom.
-
-Edit candidates, classes or text in the app at runtime, not in the code. If you add Tailwind classes
-you must run `npm run build`, because `css/app.css` is precompiled and the class scanner only sees
-what is already written in the source files. Write class names out in full, never assembled from
-pieces.
-
-## Project layout
-
-```
-index.html          chooser
-kiosk.html          class voting screen
-dashboard.html      master results and controls
-js/
-  firebase-config.js  the only file you edit, your project keys
-  firebase.js         init, sign-in, error messages in plain English
-  store.js            the ballot, the vote transaction, the offline queue
-  kiosk.js            kiosk screens and state machine
-  dashboard.js        results, classes, sealing, verification, export
-  reveal.js           projector reveal and winner announcement
-  confetti.js         self-contained, cannot fail to load
-  ui.js               icons, CSV, download helpers
-vendor/             Firebase SDK, served locally
-css/app.css         compiled stylesheet, commit this
-firestore.rules     what the kiosks are and are not allowed to do
-```
+The server uses only Node.js built-in modules — you only need `npm install` if you want to run tests or rebuild CSS.
