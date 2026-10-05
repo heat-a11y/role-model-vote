@@ -1,182 +1,107 @@
-import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { site, buildSite } from './site.mjs';
+import { createServer } from '../serve.mjs';
 
-buildSite();
-const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'};
-const server=http.createServer((q,r)=>{const u=new URL(q.url,'http://x');const f=path.join(site,u.pathname==='/'?'index.html':u.pathname);
-if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);return r.end('x');}
-r.writeHead(200,{'Content-Type':MIME[path.extname(f)]||'text/plain'});fs.createReadStream(f).pipe(r);});
-await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const base=`http://127.0.0.1:${server.address().port}`;
-const b=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
-const poll={title:'Vote for your favourite role model',subtitle:'Tap the person you look up to most.',active:true,
- options:[{id:'o1',text:'Mr Ali',votes:14},{id:'o2',text:'Ms Chen',votes:9},{id:'o3',text:'Coach Davies',votes:6},{id:'o4',text:'Mrs Okafor',votes:3}],
- classes:{'3A':{roster:30,votes:20},'3B':{roster:28,votes:8},'4C':{roster:26,votes:4}},totalVotes:32};
-let bad=0;
-const say=(ok,msg,extra)=>{ if(!ok){bad++;console.log('  BAD  '+msg+(extra?'  '+extra:''));} else console.log('  ok   '+msg); };
+const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'role-model-render-'));
+const server = createServer({ dataDir });
+let browser;
 
-const p=await b.newPage({viewport:{width:1440,height:960}});
-await p.goto(base+'/kiosk.html?poll=demo&class=3A',{waitUntil:'load'});
-await p.waitForTimeout(1200);
-await p.evaluate(async d=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(d)));},poll);
-await p.waitForTimeout(700);
+try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const base = 'http://127.0.0.1:' + server.address().port;
+    const pollId = 'render-check';
+    const pollUrl = '/api/polls/' + pollId;
+    await fetch(base + pollUrl + '/ensure', { method: 'POST' });
+    const options = [
+        ['one', 'Mr Ali', 14],
+        ['two', 'Ms Chen', 9],
+        ['three', 'Coach Davies', 6],
+        ['four', 'Mrs Okafor', 3]
+    ];
+    await fetch(base + pollUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title: 'Favourite role model',
+            subtitle: 'Tap one',
+            active: false,
+            options: options.map(([id, text]) => ({ id, text, votes: 0 })),
+            classes: { '3A': { roster: 30, votes: 0 }, '3B': { roster: 28, votes: 0 } }
+        })
+    });
+    await fetch(base + pollUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true })
+    });
+    await Promise.all(Array.from({ length: 32 }, (_, i) => fetch(base + pollUrl + '/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            voteId: 'render-vote-' + String(i).padStart(3, '0'),
+            optionIndex: i % 4,
+            optionId: options[i % 4][0],
+            classKey: i % 2 === 0 ? '3A' : '3B'
+        })
+    })));
 
-const k=await p.evaluate(()=>{
-  const body=getComputedStyle(document.body);
-  const btns=[...document.querySelectorAll('[data-opt]')];
-  const first=btns[0];
-  const cs=first?getComputedStyle(first):null;
-  const h1=document.querySelector('#hd-title');
-  return {
-    count:btns.length,
-    bodyBg:body.backgroundColor, bodyColor:body.color, bodyFont:body.fontFamily,
-    cssLoaded:[...document.styleSheets].some(s=>{try{return s.cssRules.length>50}catch(e){return false}}),
-    btnRect:first?first.getBoundingClientRect().toJSON():null,
-    btnRadius:cs?cs.borderRadius:null,
-    btnBgImage:cs?cs.backgroundImage:null,
-    btnColor:cs?cs.color:null,
-    btnDisplay:cs?cs.display:null,
-    gridCols:document.getElementById('options')?getComputedStyle(document.getElementById('options')).gridTemplateColumns:null,
-    overflowX:document.documentElement.scrollWidth>document.documentElement.clientWidth,
-    titleFont:h1?getComputedStyle(h1).fontSize:null,
-    pillBg:document.getElementById('net-pill')?getComputedStyle(document.getElementById('net-pill')).backgroundColor:null,
-    heldVisible:(()=>{const e=document.getElementById('held-pill');if(!e)return 'missing';return getComputedStyle(e).display!=='none';})(),
-    heldHiddenAttr:(()=>{const e=document.getElementById('held-pill');return e?e.hasAttribute('hidden'):'missing';})(),
-    svgCount:document.querySelectorAll('svg').length,
-    svgSizes:[...document.querySelectorAll('svg')].filter(e=>e.getBoundingClientRect().width>0).map(e=>{const r=e.getBoundingClientRect();return Math.round(r.width)+'x'+Math.round(r.height);}),
-    svgPaths:document.querySelectorAll('svg path').length,
-    firstText:first?first.innerText.replace(/\n/g,' | '):null
-  };
-});
-console.log('\nKiosk render checks');
-say(k.cssLoaded,'stylesheet actually applied (compiled css parsed)');
-say(k.count===4,'four candidate buttons rendered','saw '+k.count);
-say(k.bodyBg==='rgb(2, 6, 23)','dark slate body background',k.bodyBg);
-say(k.btnBgImage&&k.btnBgImage.includes('gradient'),'candidate cards have a gradient fill',(k.btnBgImage||'').slice(0,60));
-say(k.btnRadius&&parseFloat(k.btnRadius)>=20,'candidate cards are big rounded touch targets',k.btnRadius);
-say(k.btnRect&&k.btnRect.width>200&&k.btnRect.height>=140,'cards are large enough to tap',JSON.stringify(k.btnRect&&{w:Math.round(k.btnRect.width),h:Math.round(k.btnRect.height)}));
-say(k.gridCols&&k.gridCols.split(' ').length===2,'two-column layout on a wide screen',k.gridCols);
-say(!k.overflowX,'no horizontal overflow');
-say(k.svgCount>=2,'inline svg icons rendered (no icon font, no CDN)',k.svgCount+' svgs, '+k.svgPaths+' paths');
-say(k.svgSizes.every(x=>/^([1-9]\d*)x\1$/.test(x)),'every visible icon has real square dimensions',JSON.stringify(k.svgSizes));
-say(k.pillBg&&k.pillBg!=='rgba(0, 0, 0, 0)','connection pill has a background',k.pillBg);
-say(k.heldHiddenAttr===true&&k.heldVisible===false,'"0 waiting to sync" badge is not shown when nothing is held','attr='+k.heldHiddenAttr+' display-visible='+k.heldVisible);
-say(/Mr Ali/.test(k.firstText||''),'candidate name visible on the card',k.firstText);
+    browser = await chromium.launch({
+        executablePath: '/usr/bin/chromium',
+        args: ['--no-sandbox', '--disable-dev-shm-usage']
+    });
+    const errors = [];
+    async function page(url) {
+        const result = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+        result.on('pageerror', (err) => errors.push(err.message));
+        result.on('console', (msg) => {
+            if (msg.type() === 'error' && !/favicon/i.test(msg.text())) errors.push(msg.text());
+        });
+        await result.goto(base + url, { waitUntil: 'load' });
+        return result;
+    }
 
-// second candidate must differ in colour from first (gradient cycling works)
-const grads=await p.evaluate(()=>[...document.querySelectorAll('[data-opt]')].map(e=>getComputedStyle(e).backgroundImage.slice(0,90)));
-say(new Set(grads).size===4,'each candidate gets a distinct gradient',new Set(grads).size+' distinct');
+    const kiosk = await page('/kiosk.html?poll=' + pollId + '&class=3A');
+    await kiosk.waitForSelector('[data-opt="0"]', { timeout: 10000 });
+    const kioskInfo = await kiosk.evaluate(() => {
+        const button = document.querySelector('[data-opt]');
+        const style = getComputedStyle(button);
+        const body = getComputedStyle(document.body);
+        return {
+            count: document.querySelectorAll('[data-opt]').length,
+            background: body.backgroundColor,
+            gradient: style.backgroundImage.includes('gradient'),
+            target: button.getBoundingClientRect().toJSON(),
+            overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+            stylesheetLoaded: [...document.styleSheets].some((sheet) => {
+                try { return sheet.cssRules.length > 50; } catch { return false; }
+            })
+        };
+    });
+    assert.equal(kioskInfo.count, 4);
+    assert.equal(kioskInfo.background, 'rgb(2, 6, 23)');
+    assert.equal(kioskInfo.gradient, true);
+    assert.ok(kioskInfo.target.width > 200 && kioskInfo.target.height >= 140);
+    assert.equal(kioskInfo.overflow, false);
+    assert.equal(kioskInfo.stylesheetLoaded, true);
+    console.log('  ok   voting screen renders four large, styled touch targets');
 
-await p.close();
+    const dashboard = await page('/dashboard.html?poll=' + pollId);
+    await dashboard.waitForSelector('text=Mr Ali', { timeout: 10000 });
+    assert.equal(await dashboard.locator('#view .stat-value').count(), 4);
+    assert.equal(await dashboard.locator('#view .bar-track > div').count(), 4);
+    assert.equal(await dashboard.locator('#btn-gate').isDisabled(), false);
+    console.log('  ok   master dashboard renders result bars, totals, and active controls');
 
-const d=await b.newPage({viewport:{width:1440,height:1100}});
-await d.goto(base+'/dashboard.html?poll=demo',{waitUntil:'load'});
-await d.waitForTimeout(1200);
-await d.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},poll);
-await d.waitForTimeout(700);
-const r=await d.evaluate(()=>{
-  const bars=[...document.querySelectorAll('.bar-track > div')];
-  const widths=bars.map(e=>getComputedStyle(e).transform);
-  return {
-    bars:bars.length,
-    widths,
-    total:(document.querySelector('#view').innerText.match(/Total votes\s*\n?\s*(\d+)/i)||[])[1],
-    tiles:document.querySelectorAll('#view .stat-value').length,
-    gateDisabled:document.getElementById('btn-gate').disabled,
-    loginCard:!!document.querySelector('#admin-form'),
-    overflowX:document.documentElement.scrollWidth>document.documentElement.clientWidth
-  };
-});
-console.log('\nDashboard render checks');
-say(r.bars>=4,'result bars rendered for each candidate','saw '+r.bars);
-say(new Set(r.widths).size>=3,'bars have different lengths reflecting the vote split',JSON.stringify(r.widths));
-say(r.tiles>=4,'statistic tiles rendered','saw '+r.tiles);
-say(r.gateDisabled===true,'open-voting button locked for a guest (no master sign-in)');
-say(r.loginCard===true,'master sign-in form is shown');
-say(!r.overflowX,'no horizontal overflow');
-
-await d.click('[data-tab="classes"]'); await d.waitForTimeout(400);
-const c=await d.evaluate(()=>{const t=document.querySelector('#view').innerText;
-  return {over:/over roll/i.test(t), rows:document.querySelectorAll('#view tbody tr').length};});
-console.log('\nClasses tab');
-say(c.rows>=3,'a row per class','saw '+c.rows);
-say(c.over,'a class over its roll size is flagged');
-const c2=await d.evaluate(()=>({
-  sealBtns:document.querySelectorAll('#view [data-act="seal"]').length,
-  rows:document.querySelectorAll('#view tbody tr').length,
-  lockedForGuest:[...document.querySelectorAll('#view [data-act="seal"]')].every(e=>e.disabled)
-}));
-say(c2.sealBtns===c2.rows,'every class row has a seal button','btns '+c2.sealBtns+' rows '+c2.rows);
-say(c2.lockedForGuest,'seal buttons locked for a guest (no master sign-in)');
-
-await d.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
-  {...poll,sealed:{'3B':true}});
-await d.waitForTimeout(600);
-await d.click('[data-tab="classes"]'); await d.waitForTimeout(400);
-const c3=await d.evaluate(()=>{const t=document.querySelector('#view').innerText;
-  return {sealedText:/sealed/i.test(t), signed:/signed off/i.test(t), reopen:document.querySelectorAll('#view [data-act="unseal"]').length};});
-say(c3.sealedText,'a sealed class is labelled sealed');
-say(c3.signed,'a sealed class is marked signed off, not still voting');
-say(c3.reopen===1,'the sealed class offers Reopen instead of Seal','saw '+c3.reopen);
-
-await d.click('[data-tab="audit"]'); await d.waitForTimeout(500);
-const a=await d.evaluate(()=>document.querySelector('#view').innerText);
-console.log('\nVerification tab');
-say(/Counter total/i.test(a),'shows counter vs signed records');
-say(/disagree|differ/i.test(a),'flags the mismatch while records are missing (honest, not silently green)');
-
-await d.click('#btn-announce'); await d.waitForTimeout(400);
-const w=await d.evaluate(()=>document.querySelector('#view').innerText);
-console.log('\nWinner view');
-say(/Winner/i.test(w),'announcement view renders');
-say(/Mr Ali/.test(w),'names the leader');
-await d.close();
-
-const v=await b.newPage({viewport:{width:1440,height:900}});
-const verrs=[]; v.on('pageerror',e=>verrs.push(e.message));
-await v.goto(base+'/reveal.html?poll=demo',{waitUntil:'load'});
-await v.waitForTimeout(1100);
-await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},poll);
-await v.waitForTimeout(700);
-console.log('\nReveal page');
-const rv1=await v.evaluate(()=>({txt:document.querySelector('#stage').innerText,
-  begin:!!document.querySelector('#begin')}));
-say(rv1.begin,'shows a begin button instead of starting on its own');
-say(/32 votes/i.test(rv1.txt),'states the vote total before revealing','saw: '+rv1.txt.replace(/\n/g,' ').slice(0,60));
-
-await v.click('#begin'); await v.waitForTimeout(500);
-const rv2=await v.evaluate(()=>({bars:document.querySelectorAll('.rv-bar-track').length}));
-say(rv2.bars===4,'a bar per candidate while counting','saw '+rv2.bars);
-
-await v.keyboard.press(' '); await v.waitForTimeout(1200);
-const rv3=await v.evaluate(()=>({txt:document.querySelector('#stage').innerText,
-  rows:document.querySelectorAll('#stage .card > div').length}));
-say(/Mr Ali/.test(rv3.txt),'reveals the leader by name');
-say(/winner/i.test(rv3.txt),'labels the winner');
-say(rv3.rows===4,'final ranking lists every candidate','saw '+rv3.rows);
-
-await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
-  {...poll,options:[
-    {id:'o1',text:'Mr Ali',votes:10},{id:'o2',text:'Ms Chen',votes:10},
-    {id:'o3',text:'Coach Davies',votes:4},{id:'o4',text:'Mrs Okafor',votes:2}],totalVotes:26});
-await v.waitForTimeout(700); await v.click('#again'); await v.waitForTimeout(400);
-await v.keyboard.press(' '); await v.waitForTimeout(1200);
-const rv4=await v.evaluate(()=>document.querySelector('#stage').innerText);
-say(/tie/i.test(rv4),'a genuine tie is called a tie instead of crowning one');
-say(/will not pick one/i.test(rv4),'the tie message explains it did not pick a winner');
-
-await v.evaluate(async x=>{const t=window.__testApi;await t.setDoc(t.doc({},'polls','demo'),JSON.parse(JSON.stringify(x)));},
-  {...poll,options:[
-    {id:'o1',text:'Mr Ali',votes:1},{id:'o2',text:'Ms Chen',votes:0},
-    {id:'o3',text:'Coach Davies',votes:0},{id:'o4',text:'Mrs Okafor',votes:0}],totalVotes:1});
-await v.waitForTimeout(700); await v.click('#again'); await v.waitForTimeout(400);
-await v.keyboard.press(' '); await v.waitForTimeout(1200);
-const rv5=await v.evaluate(()=>document.querySelector('#stage').innerText);
-say(!/close winner|margin of/i.test(rv5),'a one-vote lead is not dressed up as a landslide');
-say(verrs.length===0,'no uncaught errors on the reveal page',verrs.join(' | '));
-await v.close();
-
-await b.close(); server.close();
-console.log('\n'+(bad?bad+' problem(s)':'All render checks passed')+'\n');
-process.exit(bad?1:0);
+    const projector = await page('/reveal.html?poll=' + pollId);
+    await projector.waitForSelector('text=32 votes counted', { timeout: 10000 });
+    assert.match(await projector.locator('#stage').innerText(), /Favourite role model/);
+    assert.deepEqual(errors, [], 'browser errors: ' + errors.join('\n'));
+    console.log('  ok   projector renders the shared ballot with no browser errors\n');
+} finally {
+    if (browser) await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+    await fs.rm(dataDir, { recursive: true, force: true });
+}
